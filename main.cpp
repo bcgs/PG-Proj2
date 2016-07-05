@@ -1,7 +1,9 @@
-#include <iostream>
 #include <GLUT/GLUT.h>
-
+#include <iostream>
+#include <fstream>
 #include "math.h"
+#include <vector>
+#include <string>
 
 const int WINDOW_W = 800;
 const int WINDOW_H = 600;
@@ -14,9 +16,12 @@ class Vector;
 Vector crossProduct(Vector u, Vector v);
 void normalize(Vector& v);
 Vector orthogonalization(Vector u, Vector v);
+Vector vectorAddition(Vector u, Vector v);
 
-/* Variable declarations */
+/* Global variable declarations */
 double zBuffer[600][800];
+int vertexListSize;
+int triangleListSize;
 
 
 /* CLASSES */
@@ -46,10 +51,7 @@ public:
     Vector luminousIntensity;
     
     Vertex() {};
-    Vertex(double x, double y, double z) : x(x), y(y), z(z) {
-        normal = Vector(0,0,0);
-        luminousIntensity = Vector(0,0,0);
-    };
+    Vertex(double x, double y, double z) : x(x), y(y), z(z) {};
     ~Vertex() {};
 };
 
@@ -85,25 +87,20 @@ public:
         this->V = orthogonalization(N, V);   // V => V'
         normalize(this->N);
         normalize(this->V);
-        this->U = crossProduct(this->V, this->N);
+        this->U = crossProduct(this->N, this->V);
     }
     ~Camera() {};
     
     /* Global coordinate -> Local coordinates */
-    Vertex globalTOlocal(Vector P) {
-        Vertex Pv;
-        Vector P_C(P.x - x, P.y - y, P.z - z);  // P-C
+    void globalTOlocal(Vertex& Pv) {
+        Vector P_C(Pv.x - x, Pv.y - y, Pv.z - z);  // P-C
         
         Pv.x = U.x * P_C.x + U.y * P_C.y + U.z * P_C.z;
         Pv.y = V.x * P_C.x + V.y * P_C.y + V.z * P_C.z;
         Pv.z = N.x * P_C.x + N.y * P_C.y + N.z * P_C.z;
-        
-        return Pv;
     }
     
-    Vertex pointOnUserScreen(Vector P) {
-        Vertex Pv = globalTOlocal(P);
-        
+    Vertex pointOnUserScreen(Vertex Pv) {
         double Xp = (Pv.x * d)/(hx * Pv.z);
         double Yp = (Pv.y * d)/(hy * Pv.z);
         
@@ -114,8 +111,196 @@ public:
     }
 };
 
+class Illumination {
+public:
+    double Ka, Kd, Ks;
+    double n;
+    Vector Od;
+    
+    Color Ia, Il;
+    Vertex Pl;
+    
+    Illumination() {};
+    Illumination(double Ka, double Kd, double Ks, double n, Vector Od,
+                Color Ia, Color Il, Vertex Pl) : Ka(Ka), Kd(Kd), Ks(Ks),
+                n(n), Od(Od), Ia(Ia), Il(Il), Pl(Pl) {};
+    ~Illumination() {};
+};
+
+class Object {
+public:
+    std::vector<Vertex> vertices;
+    std::vector<Vertex> vertices_local;
+    std::vector<Triangle> triangles;
+    
+    Object() {};
+    ~Object() {};
+    
+    void addVertice(Vertex vertex) {
+        vertices.push_back(vertex);
+    }
+    
+    void addVertice_local(Vertex vertex) {
+        vertices_local.push_back(vertex);
+    }
+    
+    void addTriangle(int v1, int v2, int v3) {
+        triangles.push_back(Triangle(vertices[v1-1], vertices[v2-1], vertices[v3-1]));
+        
+        // Update vertices' normal
+        vertices[v1-1].normal = vectorAddition(vertices[v1-1].normal, triangles.back().normal);
+        vertices[v2-1].normal = vectorAddition(vertices[v2-1].normal, triangles.back().normal);
+        vertices[v3-1].normal = vectorAddition(vertices[v3-1].normal, triangles.back().normal);
+        
+        vertices_local[v1-1].normal = vectorAddition(vertices_local[v1-1].normal, triangles.back().normal);
+        vertices_local[v2-1].normal = vectorAddition(vertices_local[v2-1].normal, triangles.back().normal);
+        vertices_local[v3-1].normal = vectorAddition(vertices_local[v3-1].normal, triangles.back().normal);
+    }
+    
+    void normalizeVerticesNormal() {
+        for (int i = 0; i < vertices.size(); ++i) {
+            normalize(vertices[i].normal);
+            normalize(vertices_local[i].normal);
+        }
+    }
+};
+
+/* READ FILES */
+
+Camera camera;
+void readCamera(std::string path) {
+    std::ifstream file;
+    file.open(path);
+    
+    if(file.is_open()) {
+        double x, y, z;
+        
+        file >> x;
+        file >> y;
+        file >> z;
+        
+        Vector N, V;
+        
+        file >> N.x;
+        file >> N.y;
+        file >> N.z;
+        
+        file >> V.x;
+        file >> V.y;
+        file >> V.z;
+        
+        double d, hx, hy;
+        
+        file >> d;
+        file >> hx;
+        file >> hy;
+        
+        camera = Camera(x, y, z, N, V, d, hx, hy);
+        
+    } else {
+        printf("File not found.");
+    }
+    file.close();
+}
+
+Illumination illumination;
+void readIllumination(std::string path) {
+    std::ifstream file;
+    file.open(path);
+    
+    if(file.is_open()) {
+        Vertex Pl;
+        
+        file >> Pl.x;
+        file >> Pl.y;
+        file >> Pl.z;
+        camera.globalTOlocal(Pl);   //OBS: ler a camera antes da iluminação
+        
+        double Ka;
+        
+        file >> Ka;
+        
+        Color Ia;
+        
+        file >> Ia.R;
+        file >> Ia.G;
+        file >> Ia.B;
+        
+        double Kd;
+        
+        file >> Kd;
+        
+        Vector Od;
+        
+        file >> Od.x;
+        file >> Od.y;
+        file >> Od.z;
+        
+        double Ks;
+        
+        file >> Ks;
+        
+        Color Il;
+        
+        file >> Il.R;
+        file >> Il.G;
+        file >> Il.B;
+        
+        double n;
+        
+        file >> n;
+        
+        illumination = Illumination(Ka, Kd, Ks, n, Od, Ia, Il, Pl);
+        
+    } else {
+        printf("File not found.");
+    }
+    file.close();
+}
+
+Object object;
+void readObject(std::string path) {
+    std::ifstream file;
+    file.open(path);
+    
+    if(file.is_open()) {
+        file >> vertexListSize;
+        file >> triangleListSize;
+        
+        Vertex vertex;
+        
+        for (int i = 0; i < vertexListSize; ++i) {
+            file >> vertex.x;
+            file >> vertex.y;
+            file >> vertex.z;
+            
+            object.addVertice(vertex);
+            camera.globalTOlocal(vertex);
+            object.addVertice_local(vertex);
+        }
+        
+        double v1, v2, v3;
+        
+        for (int i = 0; i < triangleListSize; ++i) {
+            file >> v1;
+            file >> v2;
+            file >> v3;
+            
+            object.addTriangle(v1, v2, v3);
+        }
+        object.normalizeVerticesNormal();
+        
+    } else {
+         printf("File not found.");
+    }
+    file.close();
+}
 
 /* FUNCTIONS */
+
+Vector vectorAddition(Vector u, Vector v) {
+    return Vector(u.x + v.x, u.y + v.y, u.z + v.z);
+}
 
 double scalarProduct(Vector u, Vector v) {
     return u.x * v.x + u.y * v.y + u.z * v.z;
@@ -182,6 +367,14 @@ void handleKeypress(unsigned char key, int x, int y) {
 }
 
 int main(int argc, char ** argv) {
+//    readCamera("/Users/bcgs/Downloads/PG/Cameras/01_Camera.cfg.txt");
+//    readIllumination("/Users/bcgs/Downloads/PG/Iluminacao.txt");
+//    readObject("/Users/bcgs/Downloads/PG/Objetos/01_Objeto.byu");
+//    std::cout << object.triangles[0].normal.x << "," <<
+//    object.triangles[0].normal.y << "," <<
+//    object.triangles[0].normal.z << std::endl;
+//    std::cout << object.vertices[1304].normal.x << std::endl;
+    
     glutInit(&argc, argv);
     glutInitWindowPosition(0,0);
     glutInitWindowSize(WINDOW_W, WINDOW_H);
