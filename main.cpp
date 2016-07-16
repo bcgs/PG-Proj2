@@ -1,3 +1,13 @@
+/*
+ ---------------------------------------------
+ How to use:
+ 
+ -Keyboard:
+ 'F5': Update camera, object and illumination
+ 'ESC': Exits program
+ ---------------------------------------------
+ */
+
 #include <GLUT/GLUT.h>
 #include <iostream>
 #include <fstream>
@@ -6,12 +16,13 @@
 #include <string>
 #include <algorithm>
 
+
 const int WINDOW_W = 800;
 const int WINDOW_H = 600;
 
 
 /* Class declarations */
-class Vector;
+struct Vector;
 
 /* Function declarations */
 Vector crossProduct(Vector u, Vector v);
@@ -28,8 +39,7 @@ int triangleListSize;
 
 /* CLASSES */
 
-class Color {
-public:
+struct Color {
     int R, G, B;
     
     Color() {};
@@ -37,8 +47,7 @@ public:
     ~Color() {};
 };
 
-class Vector {
-public:
+struct Vector {
     double x, y, z;
     
     Vector() {};
@@ -46,8 +55,7 @@ public:
     ~Vector() {};
 };
 
-class Vertex {
-public:
+struct Vertex {
     double x, y, z;
     Vector normal;
     
@@ -56,8 +64,7 @@ public:
     ~Vertex() {};
 };
 
-class Triangle {
-public:
+struct Triangle {
     Vertex a, b, c;
     Vector normal;
     
@@ -75,8 +82,7 @@ public:
     }
 };
 
-class Camera {
-public:
+struct Camera {
     double x, y, z; // C
     Vector N, U, V;
     double d, hx, hy;
@@ -112,8 +118,7 @@ public:
     }
 };
 
-class Illumination {
-public:
+struct Illumination {
     double Ka, Kd, Ks, n;
     Vector Od;
     Color Ia, Il;
@@ -173,9 +178,7 @@ public:
     }
 };
 
-class Object {
-public:
-    std::vector<Vertex> vertices_global;
+struct Object {
     std::vector<Vertex> vertices_local;
     std::vector<Vertex> vertices2D;
     
@@ -184,10 +187,6 @@ public:
     
     Object() {};
     ~Object() {};
-    
-    void addVertice_global(Vertex vertex) {
-        vertices_global.push_back(vertex);
-    }
     
     void addVertice_local(Vertex vertex) {
         vertices_local.push_back(vertex);
@@ -208,9 +207,16 @@ public:
     }
     
     void normalizeVerticesNormal() {
-        for (int i = 0; i < vertices_global.size(); ++i) {
+        for (int i = 0; i < vertices_local.size(); ++i) {
             normalize(vertices_local[i].normal);
         }
+    }
+    
+    void clearBuffers() {
+        vertices_local.clear();
+        vertices2D.clear();
+        triangles2D.clear();
+        triangles3D.clear();
     }
 };
 
@@ -326,8 +332,6 @@ void readObject(std::string path) {
             file >> vertex.x;
             file >> vertex.y;
             file >> vertex.z;
-            
-            object.addVertice_global(vertex);
             
             camera.globalTOlocal(vertex);
             object.addVertice_local(vertex);
@@ -450,7 +454,6 @@ void scanLine(double xmin, double xmax, int yScan, Triangle triangle2D, Triangle
                             if(luminousIntensity.x > 255) luminousIntensity.x = 255;
                             if(luminousIntensity.y > 255) luminousIntensity.y = 255;
                             if(luminousIntensity.z > 255) luminousIntensity.z = 255;
-                            
                         }
                     }
                     glColor3f(luminousIntensity.x/255,luminousIntensity.y/255,luminousIntensity.z/255);
@@ -628,8 +631,16 @@ void initializeBuffer() {
 }
 
 void execute() {
-    readCamera("/Users/bcgs/Downloads/PG/Cameras/vaso.cfg.txt");
-    readObject("/Users/bcgs/Downloads/PG/Objetos/vaso.byu");
+    std::string cam, obj, illum;
+    
+    printf("Camera: ");
+    std::cin >> cam;
+    readCamera("/Users/bcgs/Downloads/PG/Cameras/" + cam + ".cfg.txt");
+    
+    printf("Object: ");
+    std::cin >> obj;
+    readObject("/Users/bcgs/Downloads/PG/Objetos/" + obj + ".byu");
+    
     readIllumination("/Users/bcgs/Downloads/PG/Iluminacao.txt");
     
     initializeBuffer();
@@ -637,6 +648,7 @@ void execute() {
 
 /* GLUT */
 
+// Draw lines
 void drawTriangle(std::vector<Triangle> triangles) {
     glBegin(GL_LINES);
     glColor3f(1.0f, 1.0f, 0.0f);
@@ -681,6 +693,14 @@ void handleKeypress(unsigned char key, int x, int y) {
     }
 }
 
+void handleSpecialKeyboard(int key, int x, int y) {
+    if(key == GLUT_KEY_F5) {
+        object.clearBuffers();
+        execute();
+        glutPostRedisplay();
+    }
+}
+
 int main(int argc, char ** argv) {
     execute();
     
@@ -696,6 +716,7 @@ int main(int argc, char ** argv) {
     
     glutDisplayFunc(display);
     glutKeyboardFunc(handleKeypress);
+    glutSpecialUpFunc(handleSpecialKeyboard);
     glutReshapeFunc(reshape);
     
     glutMainLoop();
