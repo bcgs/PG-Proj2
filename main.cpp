@@ -1,11 +1,11 @@
 /*
- ---------------------------------------------
+ -----------------------------------------------------
  How to use:
  
  -Keyboard:
- 'F5': Update camera, object and illumination
+ 'F5': Update camera, object, illumination and texture
  'ESC': Exits program
- ---------------------------------------------
+ -----------------------------------------------------
  */
 
 #include <GLUT/GLUT.h>
@@ -32,10 +32,14 @@ Vector orthogonalization(Vector u, Vector v);
 Vector vectorAddition(Vector u, Vector v);
 
 /* Global variable declarations */
-double zBuffer[600][800];
+double zBuffer[WINDOW_H][WINDOW_W];
 int vertexListSize;
 int triangleListSize;
 
+double textureR[WINDOW_H][WINDOW_W];
+double textureG[WINDOW_H][WINDOW_W];
+double textureB[WINDOW_H][WINDOW_W];
+bool with_texture = false;
 
 /* CLASSES */
 
@@ -152,6 +156,18 @@ struct Illumination {
         
         return diffuse_comp;
     }
+
+    Vertex getDiffuseCompTexture(Vertex _3DPoint, int x, int y) {
+        Vector L = getL(_3DPoint);
+        Vector N = _3DPoint.normal;
+        Vertex diffuse_comp;
+        
+        diffuse_comp.x = scalarProduct(N, L) * Il.R * textureR[y][x] * Kd;
+        diffuse_comp.y = scalarProduct(N, L) * Il.G * textureG[y][x] * Kd;
+        diffuse_comp.z = scalarProduct(N, L) * Il.B * textureB[y][x] * Kd;
+        
+        return diffuse_comp;
+    }
     
     Vector getR(Vertex _3DPoint) {
         Vector L = getL(_3DPoint);
@@ -185,6 +201,8 @@ struct Object {
     std::vector<Triangle> triangles2D;
     std::vector<Triangle> triangles3D;
     
+    double left, top, right, bottom;
+    
     Object() {};
     ~Object() {};
     
@@ -217,6 +235,38 @@ struct Object {
         vertices2D.clear();
         triangles2D.clear();
         triangles3D.clear();
+    }
+    
+    void boundingBox() {
+        left = WINDOW_W, right = 0, top = WINDOW_H, bottom = 0;
+        for (int i = 0; i < triangleListSize; ++i) {
+            if(triangles2D[i].a.x < left)
+               left = triangles2D[i].a.x;
+            if(triangles2D[i].a.x > right)
+               right = triangles2D[i].a.x;
+            if(triangles2D[i].a.y < top)
+               top = triangles2D[i].a.y;
+            if(triangles2D[i].a.y > bottom)
+               bottom = triangles2D[i].a.y;
+            
+            if(triangles2D[i].b.x < left)
+               left = triangles2D[i].b.x;
+            if(triangles2D[i].b.x > right)
+               right = triangles2D[i].b.x;
+            if(triangles2D[i].b.y < top)
+               top = triangles2D[i].b.y;
+            if(triangles2D[i].b.y > bottom)
+               bottom = triangles2D[i].b.y;
+            
+            if(triangles2D[i].c.x < left)
+               left = triangles2D[i].c.x;
+            if(triangles2D[i].c.x > right)
+               right = triangles2D[i].c.x;
+            if(triangles2D[i].c.y < top)
+               top = triangles2D[i].c.y;
+            if(triangles2D[i].c.y > bottom)
+                bottom = triangles2D[i].c.y;
+        }
     }
 };
 
@@ -349,11 +399,70 @@ void readObject(std::string path) {
             
             object.addTriangle(v1, v2, v3);
         }
+        if(with_texture) object.boundingBox();
         object.normalizeVerticesNormal();
         
         std::cout << "Object OK!" << std::endl;
     } else {
         printf("Object not found.\n");
+    }
+    file.close();
+}
+
+/*
+ * readTexture(texture.txt)
+ * 
+ * Extract pixel values (RGB) from a .jpg file and
+ * store them in a .txt file. Pass the .txt as parameter.
+ * 
+ * (Extract algorithm not included)
+ */
+void readTexture(std::string path) {
+    std::ifstream file;
+    file.open(path);
+    
+    int width, height;
+    
+    for (int i = object.top; i < object.bottom; ++i) {
+        for (int j = object.left; j < object.right; ++j) {
+            if (j >= object.left && j < object.right && i >= object.top && i <= object.bottom) {
+                textureR[j][i] = illumination.Od.x;
+                textureG[j][i] = illumination.Od.y;
+                textureB[j][i] = illumination.Od.z;
+            }
+            else {
+                textureR[j][i] = 1;
+                textureG[j][i] = 1;
+                textureB[j][i] = 1;
+            }
+        }
+    }
+    
+    if (file.is_open()) {
+        file >> width;
+        file >> height;
+        
+        for (int i = 0; i < height; ++i) {
+            for (int j = 0; j < width; ++j) {
+                double a, b, c;
+                
+                file >> a;
+                file >> b;
+                file >> c;
+                
+                for (int m = (i - 1)*(object.bottom - object.top) / height; m < i*(object.bottom - object.top) / height; ++m) {
+                    for (int n = (j - 1)*(object.right - object.left) / width; n < j*(object.right - object.left) / width; ++n) {
+                        textureR[(m + (int(object.top)))][(n + (int(object.left)))] = a/255;
+                        textureG[(m + (int(object.top)))][(n + (int(object.left)))] = b/255;
+                        textureB[(m + (int(object.top)))][(n + (int(object.left)))] = c/255;
+                    }
+                }
+            }
+        }
+        std::cout << "Texture OK!" << std::endl;
+    }
+    else {
+        printf("Texture not found.\n");
     }
     file.close();
 }
@@ -434,11 +543,14 @@ void scanLine(double xmin, double xmax, int yScan, Triangle triangle2D, Triangle
                     
                     // If negative neither diffuse nor specular
                     if(scalarProduct(_3DPoint.normal, L) > 0) {
-                        Vertex diffuseComp = illumination.getDiffuseComp(_3DPoint);
+                        Vertex diffuseComp;
                         
-                       luminousIntensity.x += diffuseComp.x;
-                       luminousIntensity.y += diffuseComp.y;
-                       luminousIntensity.z += diffuseComp.z;
+                        if(with_texture) diffuseComp = illumination.getDiffuseCompTexture(_3DPoint, x, yScan);
+                        else diffuseComp = illumination.getDiffuseComp(_3DPoint);
+                        
+                        luminousIntensity.x += diffuseComp.x;
+                        luminousIntensity.y += diffuseComp.y;
+                        luminousIntensity.z += diffuseComp.z;
                         
                         Vector R = illumination.getR(_3DPoint);
                         
@@ -622,8 +734,8 @@ Vector orthogonalization(Vector u, Vector v) {
 }
 
 void initializeBuffer() {
-    for (int i = 0; i < 600; ++i) {
-        for (int j = 0; j < 800; ++j) {
+    for (int i = 0; i < WINDOW_H; ++i) {
+        for (int j = 0; j < WINDOW_W; ++j) {
             zBuffer[i][j] = __DBL_MAX__;
         }
     }
@@ -631,7 +743,12 @@ void initializeBuffer() {
 }
 
 void execute() {
-    std::string cam, obj, illum;
+    std::string cam, obj, illum, tex;
+    char y_n;
+    
+    printf("Texture? y/n\n");
+    std::cin >> y_n;
+    if(y_n == 'y') with_texture = true;
     
     printf("Camera: ");
     std::cin >> cam;
@@ -643,12 +760,18 @@ void execute() {
     
     readIllumination("/Users/bcgs/Downloads/PG/Iluminacao.txt");
     
+    if(with_texture) {
+        printf("Texture: ");
+        std::cin >> tex;
+        readTexture("/Users/bcgs/Downloads/PG/Texturas/" + tex + ".txt");
+    }
+    
     initializeBuffer();
 }
 
 /* GLUT */
 
-// Draw lines
+// Draw triangle edges
 void drawTriangle(std::vector<Triangle> triangles) {
     glBegin(GL_LINES);
     glColor3f(1.0f, 1.0f, 0.0f);
@@ -696,6 +819,7 @@ void handleKeypress(unsigned char key, int x, int y) {
 void handleSpecialKeyboard(int key, int x, int y) {
     if(key == GLUT_KEY_F5) {
         object.clearBuffers();
+        with_texture = false;
         execute();
         glutPostRedisplay();
     }
